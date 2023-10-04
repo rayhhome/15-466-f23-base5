@@ -1,18 +1,18 @@
 
-BLENDER="C:\Program Files\Blender Foundation\Blender 2.90\blender.exe"
+BLENDER="C:\Program Files\Blender Foundation\Blender 3.6\blender.exe"
 DIST=../dist
 
 all : \
-    $(DIST)/phone-bank.pnct \
-    $(DIST)/phone-bank.scene \
-    $(DIST)/phone-bank.w \
+    $(DIST)/chess.pnct \
+    $(DIST)/chess.scene \
+    $(DIST)/chess.w \
 
 
-$(DIST)/phone-bank.scene : phone-bank.blend export-scene.py
-    $(BLENDER) --background --python export-scene.py -- "phone-bank.blend:Platforms" "$(DIST)/phone-bank.scene"
+$(DIST)/chess.scene : chess.blend export-scene.py
+    $(BLENDER) --background --python export-scene.py -- "chess.blend:Platforms" "$(DIST)/chess.scene"
 
-$(DIST)/phone-bank.pnct : phone-bank.blend export-meshes.py
-    $(BLENDER) --background --python export-meshes.py -- "phone-bank.blend:Platforms" "$(DIST)/phone-bank.pnct" 
+$(DIST)/chess.pnct : chess.blend export-meshes.py
+    $(BLENDER) --background --python export-meshes.py -- "chess.blend:Platforms" "$(DIST)/chess.pnct" 
 
-$(DIST)/phone-bank.w : phone-bank.blend export-walkmeshes.py
-    $(BLENDER) --background --python export-walkmeshes.py -- "phone-bank.blend:WalkMeshes" "$(DIST)/phone-bank.w" 
+$(DIST)/chess.w : chess.blend export-walkmeshes.py
+    $(BLENDER) --background --python export-walkmeshes.py -- "chess.blend:WalkMeshes" "$(DIST)/chess.w" 
