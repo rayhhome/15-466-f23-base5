@@ -13,38 +13,40 @@
 
 #include <random>
 
-GLuint phonebank_meshes_for_lit_color_texture_program = 0;
-Load< MeshBuffer > phonebank_meshes(LoadTagDefault, []() -> MeshBuffer const * {
+//load mesh program
+GLuint chess_meshes_for_lit_color_texture_program = 0;
+Load< MeshBuffer > chess_meshes(LoadTagDefault, []() -> MeshBuffer const * {
 	MeshBuffer const *ret = new MeshBuffer(data_path("data/chess.pnct"));
-	phonebank_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
+	chess_meshes_for_lit_color_texture_program = ret->make_vao_for_program(lit_color_texture_program->program);
 	return ret;
 });
 
-Load< Scene > phonebank_scene(LoadTagDefault, []() -> Scene const * {
+//load scene for drawing
+Load< Scene > chess_scene(LoadTagDefault, []() -> Scene const * {
 	return new Scene(data_path("data/chess.scene"), [&](Scene &scene, Scene::Transform *transform, std::string const &mesh_name){
-		Mesh const &mesh = phonebank_meshes->lookup(mesh_name);
+		Mesh const &mesh = chess_meshes->lookup(mesh_name);
 
 		scene.drawables.emplace_back(transform);
 		Scene::Drawable &drawable = scene.drawables.back();
 
 		drawable.pipeline = lit_color_texture_program_pipeline;
 
-		drawable.pipeline.vao = phonebank_meshes_for_lit_color_texture_program;
+		drawable.pipeline.vao = chess_meshes_for_lit_color_texture_program;
 		drawable.pipeline.type = mesh.type;
 		drawable.pipeline.start = mesh.start;
 		drawable.pipeline.count = mesh.count;
-
 	});
 });
 
+//setup walkmesh
 WalkMesh const *walkmesh = nullptr;
-Load< WalkMeshes > phonebank_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
+Load< WalkMeshes > chess_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
 	WalkMeshes *ret = new WalkMeshes(data_path("data/chess.w"));
 	walkmesh = &ret->lookup("WalkMesh");
 	return ret;
 });
 
-PlayMode::PlayMode() : scene(*phonebank_scene) {
+PlayMode::PlayMode() : scene(*chess_scene) {
 	//create a player transform:
 	scene.transforms.emplace_back();
 	player.transform = &scene.transforms.back();
@@ -57,8 +59,19 @@ PlayMode::PlayMode() : scene(*phonebank_scene) {
 	player.camera->near = 0.01f;
 	player.camera->transform->parent = player.transform;
 
-	//player's eyes are 1.8 units above the ground:
-	player.camera->transform->position = glm::vec3(0.0f, 0.0f, 1.8f);
+	for (auto &transform : scene.transforms) {
+    if (transform.name == "Goal"){
+      goal = &transform;
+  	} else if (transform.name.substr(0,3) == "Che"){
+      auto stuff = &transform;
+    	chess_position_list.emplace_back(stuff->position);
+		} else if (transform.name == "Avatar"){
+			avatar = &transform;
+		}
+	}
+
+	//player's eyes are 2.0 units above the ground:
+	player.camera->transform->position = glm::vec3(0.0f, 0.0f, 2.0f);
 
 	//rotate camera facing direction (-z) to player facing direction (+y):
 	player.camera->transform->rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
@@ -66,13 +79,18 @@ PlayMode::PlayMode() : scene(*phonebank_scene) {
 	//start player walking at nearest walk point:
 	player.at = walkmesh->nearest_walk_point(player.transform->position);
 
+	//setup camera state;
+	camera_state = true;
+
+	//setup avatar transform;
+	avatar->parent = player.transform;
 }
 
 PlayMode::~PlayMode() {
 }
 
 bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size) {
-
+	//check user input
 	if (evt.type == SDL_KEYDOWN) {
 		if (evt.key.keysym.sym == SDLK_ESCAPE) {
 			SDL_SetRelativeMouseMode(SDL_FALSE);
@@ -93,6 +111,10 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			down.downs += 1;
 			down.pressed = true;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			space.downs += 1;
+			space.pressed = true;
+			return true;
 		}
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
@@ -107,6 +129,9 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 		} else if (evt.key.keysym.sym == SDLK_s) {
 			down.pressed = false;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_SPACE) {
+			space.pressed = false;
+			return true;
 		}
 	} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
 		if (SDL_GetRelativeMouseMode() == SDL_FALSE) {
@@ -114,23 +139,24 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			return true;
 		}
 	} else if (evt.type == SDL_MOUSEMOTION) {
-		if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
-			glm::vec2 motion = glm::vec2(
-				evt.motion.xrel / float(window_size.y),
-				-evt.motion.yrel / float(window_size.y)
-			);
-			glm::vec3 upDir = walkmesh->to_world_smooth_normal(player.at);
-			player.transform->rotation = glm::angleAxis(-motion.x * player.camera->fovy, upDir) * player.transform->rotation;
+			if (SDL_GetRelativeMouseMode() == SDL_TRUE && camera_state) {
+					glm::vec2 motion = glm::vec2(
+						evt.motion.xrel / float(window_size.y),
+						-evt.motion.yrel / float(window_size.y)
+					);
+					
+					glm::vec3 upDir = walkmesh->to_world_smooth_normal(player.at);
+					player.transform->rotation = glm::angleAxis(-motion.x * player.camera->fovy, upDir) * player.transform->rotation;
 
-			float pitch = glm::pitch(player.camera->transform->rotation);
-			pitch += motion.y * player.camera->fovy;
-			//camera looks down -z (basically at the player's feet) when pitch is at zero.
-			pitch = std::min(pitch, 0.95f * 3.1415926f);
-			pitch = std::max(pitch, 0.05f * 3.1415926f);
-			player.camera->transform->rotation = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+					float pitch = glm::pitch(player.camera->transform->rotation);
+					pitch += motion.y * player.camera->fovy;
+					//camera looks down -z (basically at the player's feet) when pitch is at zero.
+					pitch = std::min(pitch, 0.95f * 3.1415926f);
+					pitch = std::max(pitch, 0.05f * 3.1415926f);
+					player.camera->transform->rotation = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
 
-			return true;
-		}
+					return true;
+			}	
 	}
 
 	return false;
@@ -139,6 +165,27 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 void PlayMode::update(float elapsed) {
 	//player walking:
 	{
+		//check if camera is switched
+		if (space.downs > 0) {	
+			if (camera_state) {
+				//player's eyes are 40,0 units above the ground:
+				player.camera->transform->position = glm::vec3(0.0f, 0.0f, 40.0f);
+
+				//let camera face down
+				float pitch = glm::radians(-90.0f);
+				pitch =	std::min(pitch, 0.95f * 3.1415926f);
+				pitch = std::max(pitch, 0.05f * 3.1415926f);
+				player.camera->transform->rotation = glm::inverse(player.transform->rotation);
+			} else {
+				//player's eyes are 1.8 units above the ground:
+				player.camera->transform->position = glm::vec3(0.0f, 0.0f, 1.8f);
+
+				//rotate camera facing direction (-z) to player facing direction (+y):
+				player.camera->transform->rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			}
+			camera_state = !camera_state;
+		}
+
 		//combine inputs into a move:
 		constexpr float PlayerSpeed = 3.0f;
 		glm::vec2 move = glm::vec2(0.0f);
@@ -152,6 +199,14 @@ void PlayMode::update(float elapsed) {
 
 		//get move in world coordinate system:
 		glm::vec3 remain = player.transform->make_local_to_world() * glm::vec4(move.x, move.y, 0.0f, 0.0f);
+
+		bool move_flag = true;
+		for (auto pos: chess_position_list) {
+      if (glm::distance(player.transform->position + remain, pos) < 1.5f){
+        remain = player.transform->make_local_to_world() * glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+				move_flag = false;
+			}
+    }
 
 		//using a for() instead of a while() here so that if walkpoint gets stuck in
 		// some awkward case, code will not infinite loop:
@@ -218,8 +273,9 @@ void PlayMode::update(float elapsed) {
 		//glm::vec3 up = frame[1];
 		glm::vec3 forward = -frame[2];
 
-		player.transform->position += move.x * right + move.y * forward;
-	
+		if (move_flag) {
+			player.transform->position += move.x * right + move.y * forward;
+		} 
 	}
 
 	//reset button press counters:
@@ -227,6 +283,7 @@ void PlayMode::update(float elapsed) {
 	right.downs = 0;
 	up.downs = 0;
 	down.downs = 0;
+	space.downs = 0;
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {

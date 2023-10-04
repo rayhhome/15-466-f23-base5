@@ -23,7 +23,7 @@ struct PlayMode : Mode {
 	struct Button {
 		uint8_t downs = 0;
 		uint8_t pressed = 0;
-	} left, right, down, up;
+	} left, right, down, up, space;
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
@@ -36,4 +36,17 @@ struct PlayMode : Mode {
 		//camera is at player's head and will be pitched by mouse up/down motion:
 		Scene::Camera *camera = nullptr;
 	} player;
+
+	//player avator:
+	Scene::Transform *avatar = nullptr;
+
+	//goal transform:
+	Scene::Transform *goal = nullptr;
+
+	//chess transform:
+	std::vector<glm::vec3> chess_position_list = {};
+
+	//camera state
+	bool camera_state = true;
+
 };
