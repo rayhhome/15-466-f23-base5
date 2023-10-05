@@ -23,7 +23,7 @@ struct PlayMode : Mode {
 	struct Button {
 		uint8_t downs = 0;
 		uint8_t pressed = 0;
-	} left, right, down, up, space;
+	} left, right, down, up, space, ib, reset;
 
 	//local copy of the game scene (so code can change it during gameplay):
 	Scene scene;
@@ -49,4 +49,8 @@ struct PlayMode : Mode {
 	//camera state
 	bool camera_state = true;
 
+	std::list<Scene::Drawable> s2;
+	// std::vector<Scene::Drawable> tmpDrawables;
+	bool win = false;
+	glm::vec3 startingPos = glm::vec3(-36.0f, 20.0f, 0.0f);
 };

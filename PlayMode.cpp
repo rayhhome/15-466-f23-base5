@@ -5,13 +5,18 @@
 #include "DrawLines.hpp"
 #include "Mesh.hpp"
 #include "Load.hpp"
+#include "Text.hpp"
+#include "Sound.hpp"
 #include "gl_errors.hpp"
 #include "data_path.hpp"
 
+#include <fstream>
+#include <iostream>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include <random>
+#include <string>
 
 //load mesh program
 GLuint chess_meshes_for_lit_color_texture_program = 0;
@@ -38,6 +43,10 @@ Load< Scene > chess_scene(LoadTagDefault, []() -> Scene const * {
 	});
 });
 
+Load< Text > chess_text(LoadTagDefault, []() -> Text const * {
+	return new Text(data_path("data/BebasNeue-Regular.ttf"));
+});
+
 //setup walkmesh
 WalkMesh const *walkmesh = nullptr;
 Load< WalkMeshes > chess_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
@@ -46,10 +55,18 @@ Load< WalkMeshes > chess_walkmeshes(LoadTagDefault, []() -> WalkMeshes const * {
 	return ret;
 });
 
+Load< Sound::Sample > chess_music(LoadTagDefault, []() -> Sound::Sample const * {
+	return new Sound::Sample(data_path("data/High_Off_Milky.wav"));
+});
+
+//background music
+std::shared_ptr< Sound::PlayingSample > background_loop;
+
 PlayMode::PlayMode() : scene(*chess_scene) {
 	//create a player transform:
 	scene.transforms.emplace_back();
 	player.transform = &scene.transforms.back();
+	player.transform->position = startingPos;
 
 	//create a player camera attached to a child of the player transform:
 	scene.transforms.emplace_back();
@@ -59,8 +76,34 @@ PlayMode::PlayMode() : scene(*chess_scene) {
 	player.camera->near = 0.01f;
 	player.camera->transform->parent = player.transform;
 
+	for (auto drawable : scene.drawables) {
+    if (drawable.transform->name.substr(0,6) != "ChessB") {
+      s2.emplace_back(drawable);
+    }
+  	// if (drawable.transform->name.substr(0,6) != "Avatar"){		
+		// 	tmpDrawables.emplace_back(drawable);
+    // }
+  }
+
+
+	//https://www.geeksforgeeks.org/cpp-remove-elements-from-a-list-while-iterating/
+
+	for (auto it = scene.drawables.begin(); it != scene.drawables.end(); it++) { 
+		if ((*it).transform->name.substr(0,6) == "ChessW"){
+			it = scene.drawables.erase(it);
+			it--;
+		}
+	}
+
+	// for (auto it = scene.drawables.begin(); it != scene.drawables.end(); it++) { 
+	// 	if ((*it).transform->name.substr(0,6) == "Avatar"){
+	// 		it = scene.drawables.erase(it);
+	// 		it--;
+	// 	}
+	// }
+
 	for (auto &transform : scene.transforms) {
-    if (transform.name == "Goal"){
+    if (transform.name == "GoalGoal"){
       goal = &transform;
   	} else if (transform.name.substr(0,3) == "Che"){
       auto stuff = &transform;
@@ -84,6 +127,9 @@ PlayMode::PlayMode() : scene(*chess_scene) {
 
 	//setup avatar transform;
 	avatar->parent = player.transform;
+
+	//play music
+	background_loop = Sound::loop(*chess_music, 0.8f, 0.0f);
 }
 
 PlayMode::~PlayMode() {
@@ -115,6 +161,14 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			space.downs += 1;
 			space.pressed = true;
 			return true;
+		} else if (evt.key.keysym.sym == SDLK_i) {
+			ib.downs += 1;
+			ib.pressed = true;
+			return true;
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			reset.downs += 1;
+			reset.pressed = true;
+			return true;
 		}
 	} else if (evt.type == SDL_KEYUP) {
 		if (evt.key.keysym.sym == SDLK_a) {
@@ -131,6 +185,12 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 			return true;
 		} else if (evt.key.keysym.sym == SDLK_SPACE) {
 			space.pressed = false;
+			return true;
+		} else if (evt.key.keysym.sym == SDLK_r) {
+			reset.pressed = false;
+			return true;
+		} else if (evt.key.keysym.sym == SDLK_i) {
+			ib.pressed = false;
 			return true;
 		}
 	} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
@@ -163,36 +223,57 @@ bool PlayMode::handle_event(SDL_Event const &evt, glm::uvec2 const &window_size)
 }
 
 void PlayMode::update(float elapsed) {
+	//reset
+	if (reset.pressed){
+			win = false;
+			player.camera->transform->position = glm::vec3(0.0f, 0.0f, 1.8f);
+			camera_state = true;
+			player.camera->transform->rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			player.transform->position = startingPos;
+			player.at = walkmesh->nearest_walk_point(player.transform->position);
+			SDL_SetRelativeMouseMode(SDL_FALSE);
+	}
+	
 	//player walking:
-	{
+	if (!win) {
 		//check if camera is switched
 		if (space.downs > 0) {	
 			if (camera_state) {
 				//player's eyes are 40,0 units above the ground:
-				player.camera->transform->position = glm::vec3(0.0f, 0.0f, 40.0f);
+				player.camera->transform->position = glm::vec3(0.0f, 0.0f, 25.0f);
 
 				//let camera face down
 				float pitch = glm::radians(-90.0f);
 				pitch =	std::min(pitch, 0.95f * 3.1415926f);
 				pitch = std::max(pitch, 0.05f * 3.1415926f);
 				player.camera->transform->rotation = glm::inverse(player.transform->rotation);
-			} else {
+				// auto huaban = tmpDrawables.front();
+				// scene.drawables.emplace_back(huaban);
+				// s2.emplace_back(huaban);			
+		} else {
 				//player's eyes are 1.8 units above the ground:
 				player.camera->transform->position = glm::vec3(0.0f, 0.0f, 1.8f);
 
 				//rotate camera facing direction (-z) to player facing direction (+y):
 				player.camera->transform->rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    		// s2.pop_back();
+				// scene.drawables.pop_back();
 			}
-			camera_state = !camera_state;
+			camera_state = !camera_state;			
 		}
 
 		//combine inputs into a move:
-		constexpr float PlayerSpeed = 3.0f;
+		constexpr float PlayerSpeed = 5.0f;
 		glm::vec2 move = glm::vec2(0.0f);
 		if (left.pressed && !right.pressed) move.x =-1.0f;
 		if (!left.pressed && right.pressed) move.x = 1.0f;
 		if (down.pressed && !up.pressed) move.y =-1.0f;
 		if (!down.pressed && up.pressed) move.y = 1.0f;
+		
+		//switch chess
+		if (ib.downs > 0){
+			scene.drawables.swap(s2);
+		}
 
 		//make it so that moving diagonally doesn't go faster:
 		if (move != glm::vec2(0.0f)) move = glm::normalize(move) * PlayerSpeed * elapsed;
@@ -202,7 +283,7 @@ void PlayMode::update(float elapsed) {
 
 		bool move_flag = true;
 		for (auto pos: chess_position_list) {
-      if (glm::distance(player.transform->position + remain, pos) < 1.5f){
+      if (glm::distance(player.transform->position + remain, pos) < 1.65f){
         remain = player.transform->make_local_to_world() * glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 				move_flag = false;
 			}
@@ -278,12 +359,20 @@ void PlayMode::update(float elapsed) {
 		} 
 	}
 
+	//win condition
+	float dis = glm::distance(player.transform->position, goal->position);
+	if (dis < 1.5f){
+		win = true;
+	}
+
 	//reset button press counters:
 	left.downs = 0;
 	right.downs = 0;
 	up.downs = 0;
 	down.downs = 0;
 	space.downs = 0;
+	ib.downs = 0;
+	reset.downs = 0;
 }
 
 void PlayMode::draw(glm::uvec2 const &drawable_size) {
@@ -298,7 +387,7 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	glUniform3fv(lit_color_texture_program->LIGHT_ENERGY_vec3, 1, glm::value_ptr(glm::vec3(1.0f, 1.0f, 0.95f)));
 	glUseProgram(0);
 
-	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+	glClearColor(0.15f, 0.15f, 0.3f, 1.0f);
 	glClearDepth(1.0f); //1.0 is actually the default value to clear the depth buffer to, but FYI you can change it.
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -319,26 +408,54 @@ void PlayMode::draw(glm::uvec2 const &drawable_size) {
 	}
 	*/
 
-	{ //use DrawLines to overlay some text:
-		glDisable(GL_DEPTH_TEST);
-		float aspect = float(drawable_size.x) / float(drawable_size.y);
-		DrawLines lines(glm::mat4(
-			1.0f / aspect, 0.0f, 0.0f, 0.0f,
-			0.0f, 1.0f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			0.0f, 0.0f, 0.0f, 1.0f
-		));
+	{ //draw texts
+		glDisable(GL_DEPTH_TEST);		
+		chess_text->show_text(
+			"I to switch visible chess genre; Space to switch view mode", 
+			drawable_size, 
+			25.0f, 25.0f, 
+			48, 1.0f, glm::vec3(0.2f, 0.2f, 0.2f));
+		chess_text->show_text(
+			"I to switch visible chess genre; Space to switch view mode", 
+			drawable_size, 
+			26.5f, 26.5f, 
+			48, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));
 
-		constexpr float H = 0.09f;
-		lines.draw_text("Mouse motion looks; WASD moves; escape ungrabs mouse",
-			glm::vec3(-aspect + 0.1f * H, -1.0 + 0.1f * H, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0x00, 0x00, 0x00, 0x00));
-		float ofs = 2.0f / drawable_size.y;
-		lines.draw_text("Mouse motion looks; WASD moves; escape ungrabs mouse",
-			glm::vec3(-aspect + 0.1f * H + ofs, -1.0 + + 0.1f * H + ofs, 0.0),
-			glm::vec3(H, 0.0f, 0.0f), glm::vec3(0.0f, H, 0.0f),
-			glm::u8vec4(0xff, 0xff, 0xff, 0x00));
+		chess_text->show_text(
+			"Mouse motion looks; WASD moves; Escape ungrabs mouse", 
+			drawable_size, 
+			25.0f, 75.0f, 
+			48, 1.0f, glm::vec3(0.2f, 0.2f, 0.2f));	
+		chess_text->show_text(
+			"Mouse motion looks; WASD moves; Escape ungrabs mouse", 
+			drawable_size, 
+			26.5f, 76.5f, 
+			48, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));	
+
+		chess_text->show_text(
+			"A-Maze-In Chess The Game!!", 
+			drawable_size, 
+			25.0f, 645.0f, 
+			64, 1.0f, glm::vec3(0.2f, 0.2f, 0.2f));	
+		chess_text->show_text(
+			"A-Maze-In Chess The Game!!", 
+			drawable_size, 
+			26.5f, 646.5f, 
+			64, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));	
+
+		if (win) {
+			chess_text->show_text(
+				"You win! Press R to restart", 
+				drawable_size, 
+				-1.0f, -1.0f, 
+				68, 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));
+			chess_text->show_text(
+				"You win! Press R to restart", 
+				drawable_size, 
+				-1.0f, -1.0f, 
+				64, 1.0f, glm::vec3(0.5f, 0.5f, 0.5f));		
+		}
 	}
+
 	GL_ERRORS();
 }
